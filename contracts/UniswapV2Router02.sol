@@ -40,8 +40,10 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
     ) internal virtual returns (uint amountA, uint amountB) {
         // create the pair if it doesn't exist yet
         if (IUniswapV2Factory(factory).getPair(tokenA, tokenB) == address(0)) {
+            // 不存在则先创建交易对
             IUniswapV2Factory(factory).createPair(tokenA, tokenB);
         }
+        // 两种资产的储备量
         (uint reserveA, uint reserveB) = UniswapV2Library.getReserves(factory, tokenA, tokenB);
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
@@ -57,7 +59,10 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
                 (amountA, amountB) = (amountAOptimal, amountBDesired);
             }
         }
+        // amountA, amountB是最终需要支付的数量
     }
+
+    // !!! 
     function addLiquidity(
         address tokenA,
         address tokenB,
@@ -68,12 +73,16 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         address to,
         uint deadline
     ) external virtual override ensure(deadline) returns (uint amountA, uint amountB, uint liquidity) {
+        // 计算投入两种资产数量
         (amountA, amountB) = _addLiquidity(tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin);
+        // 计算出币对合约地址
         address pair = UniswapV2Library.pairFor(factory, tokenA, tokenB);
+        // 向pair合约地址转账（需要先授权）
         TransferHelper.safeTransferFrom(tokenA, msg.sender, pair, amountA);
         TransferHelper.safeTransferFrom(tokenB, msg.sender, pair, amountB);
         liquidity = IUniswapV2Pair(pair).mint(to);
     }
+    // 添加流动性，一种是ETH
     function addLiquidityETH(
         address token,
         uint amountTokenDesired,
@@ -86,12 +95,13 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             token,
             WETH,
             amountTokenDesired,
-            msg.value,
+            msg.value, // 不需要ETHDesired
             amountTokenMin,
             amountETHMin
         );
         address pair = UniswapV2Library.pairFor(factory, token, WETH);
         TransferHelper.safeTransferFrom(token, msg.sender, pair, amountToken);
+        // 将ETH转换为WETH
         IWETH(WETH).deposit{value: amountETH}();
         assert(IWETH(WETH).transfer(pair, amountETH));
         liquidity = IUniswapV2Pair(pair).mint(to);
@@ -100,6 +110,7 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
     }
 
     // **** REMOVE LIQUIDITY ****
+    // Token to Token移除流动性
     function removeLiquidity(
         address tokenA,
         address tokenB,
@@ -109,11 +120,15 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         address to,
         uint deadline
     ) public virtual override ensure(deadline) returns (uint amountA, uint amountB) {
+        // 计算pair合约地址
         address pair = UniswapV2Library.pairFor(factory, tokenA, tokenB);
+        // 流动性代币从用户划转到 pair 合约
         IUniswapV2Pair(pair).transferFrom(msg.sender, pair, liquidity); // send liquidity to pair
+        // 完成消耗LP Token以及返还两种代币，后面再对结果检查
         (uint amount0, uint amount1) = IUniswapV2Pair(pair).burn(to);
         (address token0,) = UniswapV2Library.sortTokens(tokenA, tokenB);
         (amountA, amountB) = tokenA == token0 ? (amount0, amount1) : (amount1, amount0);
+        // 检验是否大于滑点计算后的最小值
         require(amountA >= amountAMin, 'UniswapV2Router: INSUFFICIENT_A_AMOUNT');
         require(amountB >= amountBMin, 'UniswapV2Router: INSUFFICIENT_B_AMOUNT');
     }
@@ -125,9 +140,10 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         address to,
         uint deadline
     ) public virtual override ensure(deadline) returns (uint amountToken, uint amountETH) {
+        // 计算出返还用户的Token和WETH
         (amountToken, amountETH) = removeLiquidity(
             token,
-            WETH,
+            WETH, // tokenB为ETH
             liquidity,
             amountTokenMin,
             amountETHMin,
@@ -135,6 +151,7 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             deadline
         );
         TransferHelper.safeTransfer(token, to, amountToken);
+        // WETH转为ETH归还用户
         IWETH(WETH).withdraw(amountETH);
         TransferHelper.safeTransferETH(to, amountETH);
     }
@@ -211,30 +228,44 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
     // requires the initial amount to have already been sent to the first pair
     function _swap(uint[] memory amounts, address[] memory path, address _to) internal virtual {
         for (uint i; i < path.length - 1; i++) {
+            // 每次迭代 amounts[i] 为 amountIn， amounts[i + 1]为 amountOut
+            // input 为 in代币地址，output 为 out代币地址
             (address input, address output) = (path[i], path[i + 1]);
             (address token0,) = UniswapV2Library.sortTokens(input, output);
             uint amountOut = amounts[i + 1];
+            // amount0Out
             (uint amount0Out, uint amount1Out) = input == token0 ? (uint(0), amountOut) : (amountOut, uint(0));
             address to = i < path.length - 2 ? UniswapV2Library.pairFor(factory, output, path[i + 2]) : _to;
+            // core UniswapV2Pair合约里 swap调用
             IUniswapV2Pair(UniswapV2Library.pairFor(factory, input, output)).swap(
                 amount0Out, amount1Out, to, new bytes(0)
             );
         }
     }
+    // !!! token-token swap
+    // 指定售出的资产数量的方式：指定 amountIn
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
-        address[] calldata path,
+        address[] calldata path,// !!!由前端 SDK 计算出最优路径后传给合约
         address to,
         uint deadline
     ) external virtual override ensure(deadline) returns (uint[] memory amounts) {
+        // 根据 amountIn 算出 要兑换币种数量（扣千分之三手续费后）
         amounts = UniswapV2Library.getAmountsOut(factory, amountIn, path);
+        // 判断是否超过滑动计算后的最小值
         require(amounts[amounts.length - 1] >= amountOutMin, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
+        // 用户先调用approve，此处再将支付的代币转到 pair合约账户
+        // amounts[0] 为 amountIn，即将用户所有输入Token转给 pair 合约
         TransferHelper.safeTransferFrom(
             path[0], msg.sender, UniswapV2Library.pairFor(factory, path[0], path[1]), amounts[0]
         );
+        // 遍历整个兑换路径，执行pair.swap
         _swap(amounts, path, to);
     }
+
+    // token-token swap
+    // 指定买入的资产数量的方式：指定 amountOut
     function swapTokensForExactTokens(
         uint amountOut,
         uint amountInMax,
@@ -249,6 +280,8 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         );
         _swap(amounts, path, to);
     }
+
+    // 指定 amountIn（ETH）
     function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline)
         external
         virtual
@@ -258,12 +291,15 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         returns (uint[] memory amounts)
     {
         require(path[0] == WETH, 'UniswapV2Router: INVALID_PATH');
-        amounts = UniswapV2Library.getAmountsOut(factory, msg.value, path);
+        amounts = UniswapV2Library.getAmountsOut(factory, msg.value, path); // 支付ETH 数量从 msg.value 中读取
         require(amounts[amounts.length - 1] >= amountOutMin, 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT');
+        // ETH 转为 WETH 之后再转账到 pair 合约
         IWETH(WETH).deposit{value: amounts[0]}();
         assert(IWETH(WETH).transfer(UniswapV2Library.pairFor(factory, path[0], path[1]), amounts[0]));
         _swap(amounts, path, to);
     }
+
+    // Token 换取 ETH
     function swapTokensForExactETH(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline)
         external
         virtual
@@ -278,6 +314,7 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             path[0], msg.sender, UniswapV2Library.pairFor(factory, path[0], path[1]), amounts[0]
         );
         _swap(amounts, path, address(this));
+        // 进行WETH提款，转换为 ETH
         IWETH(WETH).withdraw(amounts[amounts.length - 1]);
         TransferHelper.safeTransferETH(to, amounts[amounts.length - 1]);
     }
@@ -336,6 +373,8 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
             pair.swap(amount0Out, amount1Out, to, new bytes(0));
         }
     }
+
+    // 
     function swapExactTokensForTokensSupportingFeeOnTransferTokens(
         uint amountIn,
         uint amountOutMin,

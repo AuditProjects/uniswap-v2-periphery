@@ -31,6 +31,12 @@ contract WETH9 {
     // function() public payable {
     //     deposit();
     // }
+
+    // added: 模拟放入代币
+    constructor() public {
+        balanceOf[msg.sender] += 10000 ether;
+    }
+
     function deposit() public payable {
         balanceOf[msg.sender] += msg.value;
         emit Deposit(msg.sender, msg.value);

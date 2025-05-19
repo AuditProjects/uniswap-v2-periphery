@@ -14,6 +14,7 @@ library UniswapV2Library {
         require(token0 != address(0), 'UniswapV2Library: ZERO_ADDRESS');
     }
 
+    // 计算这两个代币对应的交易对地址
     // calculates the CREATE2 address for a pair without making any external calls
     function pairFor(address factory, address tokenA, address tokenB) internal pure returns (address pair) {
         (address token0, address token1) = sortTokens(tokenA, tokenB);
@@ -25,9 +26,11 @@ library UniswapV2Library {
             ))));
     }
 
+    // 获取储备
     // fetches and sorts the reserves for a pair
     function getReserves(address factory, address tokenA, address tokenB) internal view returns (uint reserveA, uint reserveB) {
         (address token0,) = sortTokens(tokenA, tokenB);
+        // UniswapV2Pair 合约中获取 资金储备量
         (uint reserve0, uint reserve1,) = IUniswapV2Pair(pairFor(factory, tokenA, tokenB)).getReserves();
         (reserveA, reserveB) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
     }
@@ -39,6 +42,7 @@ library UniswapV2Library {
         amountB = amountA.mul(reserveB) / reserveA;
     }
 
+    // 计算 amountOut = (amountIn * reserveOut) * 997 / reserveIn * 1000 + amountIn * 997
     // given an input amount of an asset and pair reserves, returns the maximum output amount of the other asset
     function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) internal pure returns (uint amountOut) {
         require(amountIn > 0, 'UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT');
@@ -58,13 +62,24 @@ library UniswapV2Library {
         amountIn = (numerator / denominator).add(1);
     }
 
+    // 通过 amountIn 数量获取 amountOut 数量
+    // 返回 amounts，路径上每一种代币数量，amounts[0] 为 amountIn，amounts[len - 1] 为 amountIn
+    // 若是单个交易对，amounts[0] 为 amountIn，amounts[1] 为 amountOut，
+    // 若是使用多个交易对
+    // 
     // performs chained getAmountOut calculations on any number of pairs
     function getAmountsOut(address factory, uint amountIn, address[] memory path) internal view returns (uint[] memory amounts) {
         require(path.length >= 2, 'UniswapV2Library: INVALID_PATH');
         amounts = new uint[](path.length);
         amounts[0] = amountIn;
+        // 根据路径依次计算
         for (uint i; i < path.length - 1; i++) {
+            // 获取 path[i] path[i + 1] 资产对的储备
             (uint reserveIn, uint reserveOut) = getReserves(factory, path[i], path[i + 1]);
+            // 计算 path[i+1] 处的兑换数量（扣千分之三手续费）
+            // amounts[i] 为兑换数量 amountIn
+            // reserveIn 为 In 的储备
+            // reserveOut 为 Out 的储备
             amounts[i + 1] = getAmountOut(amounts[i], reserveIn, reserveOut);
         }
     }
