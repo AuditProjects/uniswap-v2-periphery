@@ -42,12 +42,14 @@ library UniswapV2Library {
         amountB = amountA.mul(reserveB) / reserveA;
     }
 
+    // 在考虑手续费后的情况下，能从池子里拿到多少 amountOut
     // 计算 amountOut = (amountIn * reserveOut) * 997 / reserveIn * 1000 + amountIn * 997
     // given an input amount of an asset and pair reserves, returns the maximum output amount of the other asset
     function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) internal pure returns (uint amountOut) {
         require(amountIn > 0, 'UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT');
         require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
         uint amountInWithFee = amountIn.mul(997);
+        // 根据恒定乘积公式并考虑手续费后的输出量
         uint numerator = amountInWithFee.mul(reserveOut);
         uint denominator = reserveIn.mul(1000).add(amountInWithFee);
         amountOut = numerator / denominator;
