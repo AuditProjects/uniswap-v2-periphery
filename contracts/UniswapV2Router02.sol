@@ -48,8 +48,9 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
         if (reserveA == 0 && reserveB == 0) {
             (amountA, amountB) = (amountADesired, amountBDesired);
         } else {
+            // 按现有比储备比例计算投入 amountADesired 需要的 B
             uint amountBOptimal = UniswapV2Library.quote(amountADesired, reserveA, reserveB);
-            if (amountBOptimal <= amountBDesired) {
+            if (amountBOptimal <= amountBDesired) { // 先计算 B 是否足够
                 require(amountBOptimal >= amountBMin, 'UniswapV2Router: INSUFFICIENT_B_AMOUNT');
                 (amountA, amountB) = (amountADesired, amountBOptimal);
             } else {
@@ -227,6 +228,7 @@ contract UniswapV2Router02 is IUniswapV2Router02 {
     // **** SWAP ****
     // requires the initial amount to have already been sent to the first pair
     function _swap(uint[] memory amounts, address[] memory path, address _to) internal virtual {
+        // 根据 swap 路径依次执行
         for (uint i; i < path.length - 1; i++) {
             // 每次迭代 amounts[i] 为 amountIn， amounts[i + 1]为 amountOut
             // input 为 in代币地址，output 为 out代币地址
